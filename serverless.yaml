@@ -1,0 +1,78 @@
+service: br-tips-read-huge-csv-files
+
+provider:
+  name: aws
+  runtime: python3.8
+  region: us-east-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - s3:ListBucket
+        - s3:GetObject
+        - s3:DeleteObject
+        - s3:PutObject
+        - s3:ReplicateObject
+      Resource:
+        - Fn::GetAtt:
+            - BucketFiles
+            - Arn
+        - Fn::Join:
+          - '/'
+          -
+            - Fn::GetAtt:
+              - BucketFiles
+              - Arn
+
+
+functions:
+  function-getmetadata:
+    handler: src.getmetadata.lambda_handler
+    timeout: 15
+    memorySize: 128
+
+
+  function-processfile:
+    handler: src.processfile.lambda_handler
+    timeout: 120
+    memorySize: 1280
+
+
+
+stepFunctions:
+  stateMachines:
+    read-file:
+      name: 'read-huge-csv-file'
+      definition:
+        StartAt: LerMetadadosArquivo
+        States:
+          LerMetadadosArquivo:
+            Type: Task
+            Resource: 
+              Fn::GetAtt:
+                - function-getmetadata
+                - Arn
+            Next: ProcessarArquivo
+          ProcessarArquivo:
+            Type: Map
+            MaxConcurrency: 20
+            Iterator:
+              StartAt: LerArquivoEmPartes
+              States: 
+                LerArquivoEmPartes:
+                  Type: Task
+                  Resource: 
+                    Fn::GetAtt:
+                      - function-processfile
+                      - Arn
+                  End: true
+            End: true
+
+resources:
+  Resources:
+    BucketFiles:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: brtips-opendata-covid
+
+plugins:
+  - serverless-step-functions
